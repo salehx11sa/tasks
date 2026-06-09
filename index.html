@@ -2179,11 +2179,12 @@ function showImportError(msg){
 
 function confirmImport(){
   if(!importedRows.length) return;
-  // merge new employees & categories
   importedRows.forEach(r=>{
     (r.emps||[]).forEach(e=>{ if(e&&!EMPS.includes(e)) EMPS.push(e); });
     if(r.cat&&!CATS.includes(r.cat)) CATS.push(r.cat);
-    tasks.push({id:nextId++,...r});
+    const newTask = {id:nextId++,...r};
+    tasks.push(newTask);
+    if(window.fbSaveTask) window.fbSaveTask(newTask);
   });
   saveAll(); renderTable(); rebuildFilters(); rebuildKanbanFilters(); buildNotifications(); renderStats();
   toast('✅ تم استيراد '+importedRows.length+' مهمة بنجاح');
