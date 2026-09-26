@@ -354,6 +354,34 @@ table.rep td{padding:8px;border-bottom:1px solid var(--border);}
 .footer{background:var(--navy);height:12px;margin-top:10px;}
 #printArea{display:none;}
 
+
+/* START GATE & MODES */
+.gate{position:fixed;inset:0;z-index:995;background:linear-gradient(135deg,#0d1b3e 0%,#132150 60%,#1a2d6b 100%);display:none;align-items:center;justify-content:center;padding:16px;}
+.gate.open{display:flex;}
+.gate-card{background:#fff;border-radius:20px;padding:28px 24px;width:100%;max-width:420px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.35);border-top:5px solid var(--red);}
+.gate-logo{font-size:40px;}
+.gate-title{font-size:20px;font-weight:800;margin-top:6px;}
+.gate-sub{font-size:13px;color:var(--gray);margin-bottom:20px;}
+.gate-btn{display:flex;flex-direction:column;align-items:center;gap:3px;width:100%;border-radius:14px;padding:16px;margin-bottom:12px;border:2px solid var(--border);background:#fff;transition:all .15s;}
+.gate-btn span{font-size:26px;}
+.gate-btn b{font-size:17px;color:var(--navy);}
+.gate-btn small{font-size:12px;color:var(--gray);}
+.gate-btn:hover{border-color:var(--navy-light);transform:translateY(-2px);box-shadow:0 6px 18px rgba(13,27,62,.12);}
+.gate-btn.admin{background:var(--navy);border-color:var(--navy);}
+.gate-btn.admin b{color:#fff;}.gate-btn.admin small{color:rgba(255,255,255,.7);}
+.pin-input{width:100%;text-align:center;font-size:26px;letter-spacing:10px;padding:10px;border:2px solid var(--border);border-radius:12px;outline:none;direction:ltr;}
+.pin-input:focus{border-color:var(--navy-light);}
+.pin-err{color:var(--danger);font-size:12.5px;font-weight:700;min-height:18px;margin-top:6px;}
+.mode-chip{background:rgba(192,39,45,.25);border-color:rgba(255,255,255,.35);}
+body.admin-mode .view-only{display:none !important;}
+body.view-mode .admin-only{display:none !important;}
+body.view-mode .btn-add,body.view-mode .quick-add,body.view-mode .bulk-bar,body.view-mode .cb,body.view-mode .prog-line select,
+body.view-mode #m-deleteBtn,body.view-mode .modal-footer .btn-save.task-save,body.view-mode .review-item button,body.view-mode .btn-ok,body.view-mode .btn-no,
+body.view-mode .hbtn.import-btn,body.view-mode .row-inline,body.view-mode .emp-chip .rm,body.view-mode .emp-chip .own,body.view-mode .step .x,body.view-mode .list-item .x,
+body.view-mode .step-meta select,body.view-mode .step-chip span,body.view-mode .archive-all-btn,body.view-mode #setOpenBtn{display:none !important;}
+body.view-mode .status-sel,body.view-mode .kb-foot select{pointer-events:none;appearance:none;-webkit-appearance:none;}
+body.view-mode #taskOverlay input,body.view-mode #taskOverlay select,body.view-mode #taskOverlay textarea{pointer-events:none;background:#fafbfc;}
+body.view-mode #mainTable th:first-child,body.view-mode #mainTable td:first-child{display:none;}
 /* RESPONSIVE */
 @media(max-width:1100px){.stats-row{grid-template-columns:repeat(3,1fr);}.form-grid{grid-template-columns:1fr 1fr;}.fg.two{grid-column:1/-1;}}
 @media(max-width:700px){
@@ -397,10 +425,11 @@ table.rep td{padding:8px;border-bottom:1px solid var(--border);}
 }
 </style>
 
-<!-- Firebase (cloud database) -->
+<!-- Firebase (cloud database + admin sign-in) -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyApLBiRGHfx296qsiP23hr-hq2TRQjLaOs",
@@ -412,10 +441,16 @@ const firebaseConfig = {
   measurementId: "G-51YN49FG2P"
 };
 
-const app = initializeApp(firebaseConfig);
-const db  = getFirestore(app);
-const col = collection(db, 'tasks');
+const app  = initializeApp(firebaseConfig);
+const db   = getFirestore(app);
+const auth = getAuth(app);
+const col  = collection(db, 'tasks');
 const metaRef = doc(db, 'meta', 'config');
+
+// The admin PIN is never stored in the page: it is checked by Firebase sign-in,
+// and the database rules only accept changes from this signed-in account.
+const ADMIN_EMAIL = 'admin@srca-tasks.firebaseapp.com';
+const pinToPassword = pin => 'srca#' + String(pin).trim() + '#tasks';
 
 const clean = o => JSON.parse(JSON.stringify(o));
 const report = e => { console.error(e); window.onSyncError && window.onSyncError(e); };
@@ -443,8 +478,22 @@ window.FB = {
     const s = await getDocs(collection(db,'backups'));
     const out = []; s.forEach(d=>out.push({slot:d.id, ...d.data()}));
     return out;
+  },
+  login: async (pin) => {
+    try{ await signInWithEmailAndPassword(auth, ADMIN_EMAIL, pinToPassword(pin)); return {ok:true}; }
+    catch(e){ return {ok:false, code:e.code||'error'}; }
+  },
+  logout: () => signOut(auth),
+  changePin: async (pin) => {
+    if(!auth.currentUser) return {ok:false, code:'not-signed-in'};
+    try{ await updatePassword(auth.currentUser, pinToPassword(pin)); return {ok:true}; }
+    catch(e){ return {ok:false, code:e.code||'error'}; }
   }
 };
+
+onAuthStateChanged(auth, user => {
+  window.onAuthChange && window.onAuthChange(!!(user && user.email === ADMIN_EMAIL));
+});
 
 onSnapshot(metaRef, snap => {
   window.applyRemoteMeta && window.applyRemoteMeta(snap.exists() ? snap.data() : null);
@@ -460,21 +509,41 @@ onSnapshot(col, snap => {
 <body>
 <div id="fbLoading"><div style="font-size:34px">🔄</div><div>جاري الاتصال بقاعدة البيانات...</div></div>
 
+<div id="gate" class="gate">
+  <div class="gate-card">
+    <div class="gate-logo">📋</div>
+    <div class="gate-title">إدارة الثقافة المؤسسية</div>
+    <div class="gate-sub">جدول متابعة المهام</div>
+    <div id="gateChoose">
+      <button class="gate-btn view" onclick="enterView()"><span>👁</span><b>الاطلاع</b><small>عرض المهام والتقارير بدون تعديل</small></button>
+      <button class="gate-btn admin" onclick="showPin()"><span>🔐</span><b>الإدارة</b><small>إضافة وتعديل المهام — برمز سري</small></button>
+    </div>
+    <div id="gatePin" style="display:none">
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px">أدخل الرمز السري للإدارة</div>
+      <input id="pinInput" type="password" inputmode="numeric" autocomplete="off" maxlength="12" class="pin-input" placeholder="•••" onkeydown="if(event.key==='Enter')submitPin()">
+      <div id="pinErr" class="pin-err"></div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn-save" style="flex:1" id="pinBtn" onclick="submitPin()">دخول</button>
+        <button class="btn-cancel" onclick="backToChoose()">رجوع</button>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="header">
   <div class="logo-area">
     <div style="display:flex;align-items:center;gap:14px">
       <div class="dept-name">إدارة الثقافة المؤسسية</div>
       <span class="header-title-text">جدول متابعة المهام</span>
     </div>
-    <button class="me-chip" id="meChip" onclick="openIdentity()">👤 من أنت؟</button>
+    <div style="display:flex;gap:6px;align-items:center"><button class="me-chip mode-chip" id="modeChip" onclick="openMenu(event,'modeMenu')">👁 الاطلاع</button><button class="me-chip view-only" id="meChip" onclick="openIdentity()">👤 من أنت؟</button></div>
   </div>
   <div class="header-right">
     <div class="date-pill" id="currentDate"></div>
     <button class="hbtn" onclick="toggleNotifPanel(event)" id="notifBtn" title="التنبيهات">🔔<span class="notif-badge" id="notifBadge" style="display:none">0</span></button>
     <button class="hbtn" onclick="printReport()" title="طباعة تقرير بالمهام الظاهرة">🖨 طباعة</button>
     <button class="hbtn" onclick="openMenu(event,'exportMenu')">⬇ تصدير</button>
-    <button class="hbtn" onclick="openImportModal()">⬆ استيراد</button>
-    <button class="hbtn" onclick="openSettings()" title="القوائم والنسخ الاحتياطية">⚙️</button>
+    <button class="hbtn admin-only" onclick="openImportModal()">⬆ استيراد</button>
+    <button class="hbtn admin-only" id="setOpenBtn" onclick="openSettings()" title="القوائم والنسخ الاحتياطية">⚙️</button>
     <button class="btn-add" onclick="openTaskModal()">＋ إضافة مهمة</button>
   </div>
 </div>
@@ -629,7 +698,7 @@ onSnapshot(col, snap => {
     <h2>🗃 أرشيف المهام</h2>
     <input class="inp" style="flex:1;min-width:180px" type="text" id="aSearch" placeholder="🔍 بحث في الأرشيف..." oninput="renderArchive()">
     <select class="sel" id="aEmp" onchange="renderArchive()"></select>
-    <button class="tool-btn" onclick="archiveAllDone()">🗃 أرشفة كل المنجزة</button>
+    <button class="tool-btn admin-only" onclick="archiveAllDone()">🗃 أرشفة كل المنجزة</button>
   </div>
   <div id="archiveBody" style="overflow-x:auto"></div>
 </div></div>
@@ -638,7 +707,7 @@ onSnapshot(col, snap => {
 <div class="tab-panel" id="panel-trash"><div class="wrap">
   <div class="toolbar">
     <h2>🗑 المحذوفات</h2>
-    <button class="btn-no" onclick="emptyTrash()">حذف الكل نهائياً</button>
+    <button class="btn-no admin-only" onclick="emptyTrash()">حذف الكل نهائياً</button>
   </div>
   <div class="note-box">المهام المحذوفة تبقى هنا 30 يوماً ثم تُحذف نهائياً تلقائياً. يمكنك استعادتها في أي وقت قبل ذلك.</div>
   <div id="trashBody" style="overflow-x:auto"></div>
@@ -652,9 +721,10 @@ onSnapshot(col, snap => {
   <button onclick="exportExcel()">📗 Excel (.xlsx) — المهام الظاهرة</button>
   <button onclick="exportCSV()">📄 CSV — المهام الظاهرة</button>
   <hr>
-  <button onclick="downloadBackup()">💾 نسخة احتياطية كاملة (JSON)</button>
+  <button class="admin-only" onclick="downloadBackup()">💾 نسخة احتياطية كاملة (JSON)</button>
 </div>
 <div class="menu" id="colsMenu"></div>
+<div class="menu" id="modeMenu"></div>
 <div class="menu" id="rowMenu"></div>
 
 <!-- NOTIFICATIONS -->
@@ -746,8 +816,8 @@ onSnapshot(col, snap => {
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn-save" onclick="saveTaskModal()">💾 حفظ المهمة</button>
-      <button class="btn-cancel" onclick="closeTaskModal()">إلغاء</button>
+      <button class="btn-save task-save admin-only" onclick="saveTaskModal()">💾 حفظ المهمة</button>
+      <button class="btn-cancel" onclick="closeTaskModal()"><span class="admin-only">إلغاء</span><span class="view-only">إغلاق</span></button>
       <button class="btn-danger" id="m-deleteBtn" style="margin-right:auto" onclick="deleteFromModal()">🗑 حذف</button>
     </div>
   </div>
@@ -758,7 +828,7 @@ onSnapshot(col, snap => {
   <div class="modal sm">
     <div class="modal-header"><h2>👤 من أنت؟</h2><button class="modal-close" onclick="closeOverlay('idOverlay')">✕</button></div>
     <div class="modal-body">
-      <p style="font-size:13px;color:var(--gray);margin-bottom:12px;line-height:1.7">اختر اسمك ليظهر لك زر «مهامي» وتنبيهاتك، وليُسجَّل اسمك على التعليقات والتغييرات. يُحفظ الاختيار على هذا الجهاز فقط.</p>
+      <p style="font-size:13px;color:var(--gray);margin-bottom:12px;line-height:1.7">اختر اسمك ليعمل زر «مهامي» وتظهر لك تنبيهاتك. يُحفظ الاختيار على هذا الجهاز فقط.</p>
       <div class="fg"><select id="idSelect"></select></div>
     </div>
     <div class="modal-footer">
@@ -803,6 +873,8 @@ onSnapshot(col, snap => {
         <div class="section-title">🏢 جهات الطلب</div>
         <div class="fg full"><div class="list-box" id="setReqs"></div>
           <div class="row-inline"><input type="text" id="setReqNew" placeholder="جهة جديدة" onkeydown="if(event.key==='Enter')setAdd('reqs')"><button class="btn-small" onclick="setAdd('reqs')">+ إضافة</button></div></div>
+        <div class="section-title">🔐 الرمز السري للإدارة</div>
+        <div class="fg full"><div class="row-inline"><input type="password" inputmode="numeric" id="newPin" placeholder="الرمز الجديد (6 أرقام أو أكثر مستحسن)" autocomplete="new-password"><input type="password" inputmode="numeric" id="newPin2" placeholder="تأكيد الرمز" autocomplete="new-password"><button class="btn-small" onclick="changePin()">تغيير الرمز</button></div></div>
         <div class="section-title">💾 النسخ الاحتياطية</div>
         <div class="fg full">
           <div class="note-box" style="margin-bottom:8px">يُحفظ تلقائياً نسخة احتياطية يومية في قاعدة البيانات (آخر 14 يوماً). يمكنك أيضاً تحميل نسخة على جهازك أو الاستعادة من ملف.</div>
@@ -880,6 +952,9 @@ let ALL=[];                  // every task document (active + archived + deleted
 let META={emps:[...DEFAULT_EMPS],cats:[...DEFAULT_CATS],reqs:[...DEFAULT_REQS]};
 let me=lsGet('srca_me','');
 let _liveLoaded=false, _metaLoaded=false, _needMetaInit=false, _connected=false;
+let MODE=null, _authKnown=false, _adminInitDone=false;
+function isAdmin(){ return MODE==='admin'; }
+function guard(){ if(isAdmin()) return true; toast('👁 وضع الاطلاع — التعديل متاح للإدارة فقط'); return false; }
 
 (function loadCache(){
   const v10=lsGet('srca_all_v10',null);
@@ -908,7 +983,7 @@ function prog(t){ return isDone(t)?100:Math.max(0,Math.min(100,parseInt(t.progre
 function empsOf(t){ return Array.isArray(t.emps)?t.emps:[]; }
 function ownerOf(t){ return t.owner && empsOf(t).includes(t.owner) ? t.owner : ''; }
 function isMine(t){ return !!me && (empsOf(t).includes(me) || t.owner===me || (t.steps||[]).some(s=>(s.emps||[]).includes(me)||s.emp===me)); }
-function meName(){ return me || 'مستخدم'; }
+function meName(){ return isAdmin()?'الإدارة':(me||'مستخدم'); }
 function openDeps(t){ if(!t.dependsOn) return null; const d=getTask(t.dependsOn); return d && !isDone(d) && !d.deleted ? d : null; }
 
 // ─── LOCAL CACHE ───
@@ -917,10 +992,10 @@ function cacheLocal(){ lsSet('srca_all_v10', ALL); lsSet('srca_meta_v10', META);
 // ─── CLOUD WRITES ───
 let _offlineWarned=false;
 function offlineNote(){ if(_offlineWarned) return; _offlineWarned=true; toast('⚠️ لا يوجد اتصال بقاعدة البيانات — التعديل محفوظ على هذا الجهاز فقط'); }
-function persist(t){ cacheLocal(); if(window.FB) window.FB.saveTask(t); else offlineNote(); }
-function persistMany(list){ cacheLocal(); if(!list.length) return; if(window.FB) window.FB.saveMany(list); else offlineNote(); }
-function hardDelete(ids){ ALL=ALL.filter(t=>!ids.includes(t.id)); cacheLocal(); if(window.FB) window.FB.deleteMany(ids); else offlineNote(); }
-function saveMeta(){ cacheLocal(); if(window.FB) window.FB.saveMeta({emps:META.emps,cats:META.cats,reqs:META.reqs}); }
+function persist(t){ cacheLocal(); if(!isAdmin()) return; if(window.FB) window.FB.saveTask(t); else offlineNote(); }
+function persistMany(list){ cacheLocal(); if(!list.length||!isAdmin()) return; if(window.FB) window.FB.saveMany(list); else offlineNote(); }
+function hardDelete(ids){ if(!guard()) return; ALL=ALL.filter(t=>!ids.includes(t.id)); cacheLocal(); if(window.FB) window.FB.deleteMany(ids); else offlineNote(); }
+function saveMeta(){ cacheLocal(); if(!isAdmin()) return; if(window.FB) window.FB.saveMeta({emps:META.emps,cats:META.cats,reqs:META.reqs}); }
 window.onSyncError=function(){ toast('⚠️ تعذر الحفظ في قاعدة البيانات — تحقق من الاتصال'); };
 
 // ─── INCOMING DATA ───
@@ -931,9 +1006,7 @@ window.applyRemoteTasks=function(arr){
   if(!_liveLoaded){
     _liveLoaded=true;
     hideLoading();
-    migrateLocalArchive();
-    if(_needMetaInit) initMeta();
-    setTimeout(housekeeping,1500);
+    adminInit();
   }
   cacheLocal();
   // keep selection valid
@@ -949,11 +1022,20 @@ window.applyRemoteMeta=function(d){
     cacheLocal(); rerenderAll();
     if($('taskOverlay').classList.contains('open')) refreshModalLists();
   } else if(!_metaLoaded){
-    if(_liveLoaded) initMeta(); else _needMetaInit=true;
+    _needMetaInit=true; if(_adminInitDone) initMeta(); else adminInit();
   }
   _metaLoaded=true;
 };
+// Things only the admin's device should write to the cloud (first load after sign-in)
+function adminInit(){
+  if(!isAdmin() || !_liveLoaded || _adminInitDone) return;
+  _adminInitDone=true;
+  migrateLocalArchive();
+  if(_needMetaInit) initMeta();
+  setTimeout(housekeeping,1500);
+}
 function initMeta(){
+  if(!isAdmin()) return;
   _needMetaInit=false;
   META.emps=uniq([...META.emps,...ALL.flatMap(empsOf)]);
   META.cats=uniq([...META.cats,...ALL.map(t=>t.cat)]);
@@ -961,7 +1043,7 @@ function initMeta(){
   saveMeta();
 }
 function hideLoading(){ const f=$('fbLoading'); if(f) f.style.display='none'; }
-setTimeout(()=>{ if(!_liveLoaded){ hideLoading(); rerenderAll(); toast(window.FB?'⏳ الاتصال بطيء — تُعرض آخر نسخة محفوظة':'⚠️ تعذر الاتصال — تُعرض آخر نسخة محفوظة على هذا الجهاز'); } },8000);
+setTimeout(()=>{ if(!_authKnown){ _authKnown=true; decideMode(false); } if(!_liveLoaded){ hideLoading(); rerenderAll(); toast(window.FB?'⏳ الاتصال بطيء — تُعرض آخر نسخة محفوظة':'⚠️ تعذر الاتصال — تُعرض آخر نسخة محفوظة على هذا الجهاز'); } },8000);
 
 // One-time: move the old device-only archive (older versions) into the shared cloud
 function migrateLocalArchive(){
@@ -1067,6 +1149,7 @@ function statusGate(tasksArr,newStatus){
 
 // Single entry point for editing an existing task
 function updateTask(id,changes,opts={}){
+  if(!guard()) return false;
   const t=getTask(id); if(!t) return false;
   const prev=JSON.parse(JSON.stringify(t));
   Object.assign(t,changes);
@@ -1082,6 +1165,7 @@ function updateTask(id,changes,opts={}){
   return true;
 }
 function updateMany(ids,fn,logText){
+  if(!guard()) return 0;
   const out=[], spawned=[];
   ids.forEach(id=>{
     const t=getTask(id); if(!t) return;
@@ -1099,6 +1183,7 @@ function updateMany(ids,fn,logText){
   return out.length;
 }
 function createTask(data){
+  if(!guard()) return null;
   const t={
     id:newId(), task:'', emps:[], owner:'', cat:'', requester:'', priority:'متوسطة', status:'معلق', progress:0,
     start:todayStr(), due:'', done:'', notes:'', stuckReason:'', steps:[], links:[], comments:[], history:[],
@@ -1158,6 +1243,63 @@ function archiveTasks(ids){
 function unarchive(id){
   updateMany([id],t=>{ t.archived=false; delete t.archivedAt; },'استُعيدت من الأرشيف');
   toast('↩️ أُعيدت المهمة إلى الجدول');
+}
+
+// ─── MODES: الاطلاع (view) / الإدارة (admin) ───
+window.onAuthChange=function(adminUser){
+  _authKnown=true;
+  decideMode(adminUser);
+};
+function decideMode(adminUser){
+  if(adminUser){ setMode('admin'); return; }
+  if(MODE==='admin'){ lsSet('srca_mode','view'); setMode('view'); toast('تم الخروج من الإدارة'); return; }
+  if(MODE==='view') return;
+  if(lsGet('srca_mode','')==='view') setMode('view'); else showGate();
+}
+function setMode(m){
+  MODE=m;
+  document.body.classList.toggle('admin-mode',m==='admin');
+  document.body.classList.toggle('view-mode',m!=='admin');
+  $('gate').classList.remove('open');
+  $('modeChip').textContent=m==='admin'?'🔐 الإدارة':'👁 الاطلاع';
+  if(m==='admin'){ lsSet('srca_mode','admin'); adminInit(); }
+  else { selected.clear(); }
+  closeMenus();
+  rerenderAll();
+}
+function showGate(){ backToChoose(); $('gate').classList.add('open'); hideLoading(); }
+function enterView(){ lsSet('srca_mode','view'); setMode('view'); }
+function showPin(){ $('gateChoose').style.display='none'; $('gatePin').style.display=''; $('pinErr').textContent=''; $('pinInput').value=''; $('gate').classList.add('open'); setTimeout(()=>$('pinInput').focus(),50); }
+function backToChoose(){ $('gateChoose').style.display=''; $('gatePin').style.display='none'; }
+async function submitPin(){
+  const pin=$('pinInput').value.trim();
+  if(!pin){ $('pinErr').textContent='أدخل الرمز'; return; }
+  if(!window.FB){ $('pinErr').textContent='لا يوجد اتصال بقاعدة البيانات — حاول لاحقاً'; return; }
+  $('pinBtn').disabled=true; $('pinErr').textContent='جاري التحقق...';
+  const r=await window.FB.login(pin);
+  $('pinBtn').disabled=false;
+  if(r.ok){ $('pinErr').textContent=''; $('pinInput').value=''; toast('🔐 أهلاً بك في وضع الإدارة'); return; }
+  $('pinInput').value=''; $('pinInput').focus();
+  $('pinErr').textContent = r.code==='auth/too-many-requests' ? 'محاولات كثيرة — انتظر دقائق ثم حاول مجدداً'
+    : r.code==='auth/network-request-failed' ? 'تحقق من الاتصال بالإنترنت'
+    : r.code==='auth/operation-not-allowed' ? 'تسجيل الدخول غير مفعّل في Firebase بعد'
+    : 'الرمز غير صحيح';
+}
+function renderModeMenu(){
+  $('modeMenu').innerHTML = isAdmin()
+    ? '<div class="menu-title">أنت في وضع الإدارة</div><button onclick="closeMenus();window.FB&&window.FB.logout()">🚪 خروج من الإدارة (إلى الاطلاع)</button>'
+    : '<div class="menu-title">أنت في وضع الاطلاع</div><button onclick="closeMenus();showPin()">🔐 الدخول للإدارة</button>';
+}
+async function changePin(){
+  if(!guard()) return;
+  const a=$('newPin').value.trim(), b=$('newPin2').value.trim();
+  if(!/^\d{3,12}$/.test(a)){ alert('الرمز يجب أن يكون أرقاماً (3 إلى 12 رقماً)'); return; }
+  if(a!==b){ alert('الرمزان غير متطابقين'); return; }
+  if(a.length<6 && !confirm('رمز قصير سهل التخمين. يُفضّل 6 أرقام أو أكثر. هل تريد المتابعة؟')) return;
+  const r=await window.FB.changePin(a);
+  if(r.ok){ $('newPin').value=''; $('newPin2').value=''; toast('✅ تم تغيير الرمز السري'); }
+  else if(r.code==='auth/requires-recent-login') alert('لأمانك: اخرج من الإدارة وادخل مرة أخرى ثم غيّر الرمز');
+  else alert('تعذر تغيير الرمز ('+r.code+')');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1395,7 +1537,7 @@ function rowHTML(t){
     <td${h('due')}><div class="date-cell${ov?' overdue':''}">${t.due?fmt(t.due):'<span style="color:#d97706">بلا موعد</span>'}${ov?' ⚠':''}</div></td>
     <td${h('done')}><div class="date-cell">${t.done?fmt(t.done):'—'}</div></td>
     <td${h('notes')}><div class="notes-cell">${t.notes?esc(t.notes):'<span style="color:#bbb">—</span>'}</div></td>
-    <td><div class="row-actions"><button class="btn-icon" title="تعديل" onclick="openTaskModal(${t.id})">✏️</button><button class="btn-icon" title="المزيد" onclick="openRowMenu(event,${t.id})">⋯</button></div></td>
+    <td><div class="row-actions"><button class="btn-icon" title="${isAdmin()?'تعديل':'التفاصيل'}" onclick="openTaskModal(${t.id})">${isAdmin()?'✏️':'📄'}</button><button class="btn-icon" title="المزيد" onclick="openRowMenu(event,${t.id})">⋯</button></div></td>
   </tr>`;
 }
 function cardHTML(t){
@@ -1436,6 +1578,7 @@ function renderTasks(){
 // ─── INLINE EDITS ───
 function inlineStatus(id,sel){
   const t=getTask(id); if(!t) return;
+  if(!guard()){ sel.value=t.status; return; }
   const v=sel.value; if(v===t.status) return;
   const extra=statusGate([t],v);
   if(extra===null){ sel.value=t.status; return; }
@@ -1454,6 +1597,7 @@ function renderBulkBar(){
   $('bulkCount').textContent=`✔ ${n} مهمة محددة`;
 }
 function bulkApply(action,val){
+  if(!guard()) return;
   const ids=[...selected].filter(id=>{ const t=getTask(id); return t&&isActive(t); });
   if(!ids.length||(val===''&&action!=='archive'&&action!=='delete')) return;
   const tasksArr=ids.map(getTask);
@@ -1479,6 +1623,7 @@ function bulkApply(action,val){
 
 // ─── QUICK ADD ───
 function quickAdd(){
+  if(!guard()) return;
   const name=$('qaTask').value.trim();
   if(!name){ $('qaTask').focus(); return; }
   const emp=$('qaEmp').value || me;
@@ -1511,6 +1656,7 @@ function openMenu(ev,id){
   const m=$(id), wasOpen=m.classList.contains('open');
   closeMenus(); if(wasOpen) return;
   if(id==='colsMenu') renderColsMenu();
+  if(id==='modeMenu') renderModeMenu();
   positionMenu(m,ev);
 }
 function openRowMenu(ev,id){
@@ -1518,15 +1664,15 @@ function openRowMenu(ev,id){
   const t=getTask(id); if(!t) return;
   closeMenus();
   $('rowMenu').innerHTML=`
-    <button onclick="closeMenus();openTaskModal(${id})">✏️ تعديل</button>
-    <button onclick="closeMenus();togglePin(${id})">${t.pinned?'📍 إلغاء التثبيت':'📌 تثبيت في الأعلى'}</button>
-    <button onclick="closeMenus();duplicateTask(${id})">⧉ تكرار المهمة</button>
+    <button onclick="closeMenus();openTaskModal(${id})">${isAdmin()?'✏️ تعديل':'📄 التفاصيل'}</button>
+    ${isAdmin()?`<button onclick="closeMenus();togglePin(${id})">${t.pinned?'📍 إلغاء التثبيت':'📌 تثبيت في الأعلى'}</button>
+    <button onclick="closeMenus();duplicateTask(${id})">⧉ تكرار المهمة</button>`:''}
     <button onclick="closeMenus();copyTask(${id})">📋 نسخ التفاصيل</button>
     <button onclick="closeMenus();printTask(${id})">📄 طباعة / PDF</button>
     <button onclick="closeMenus();mailTask(${id})">✉️ إرسال بالإيميل</button>
-    <hr>
+    ${isAdmin()?`<hr>
     <button onclick="closeMenus();archiveTasks([${id}])">🗃 أرشفة</button>
-    <button class="danger" onclick="closeMenus();if(confirm('نقل المهمة إلى المحذوفات؟'))softDelete([${id}])">🗑 حذف</button>`;
+    <button class="danger" onclick="closeMenus();if(confirm('نقل المهمة إلى المحذوفات؟'))softDelete([${id}])">🗑 حذف</button>`:''}`;
   positionMenu($('rowMenu'),ev);
 }
 document.addEventListener('click',e=>{ if(!e.target.closest('.menu')) closeMenus(); });
@@ -1595,7 +1741,8 @@ function openTaskModal(id=null,preset={}){
   editingId=id;
   const t=id?getTask(id):null;
   if(id && !t){ toast('المهمة غير موجودة'); return; }
-  $('taskModalTitle').textContent=t?'✏️ تعديل المهمة':'📝 إضافة مهمة جديدة';
+  if(!t && !guard()) return;
+  $('taskModalTitle').textContent=!isAdmin()?'📄 تفاصيل المهمة':t?'✏️ تعديل المهمة':'📝 إضافة مهمة جديدة';
   $('m-status').innerHTML=STATUSES.map(s=>`<option value="${esc(s.k)}">${s.icon} ${esc(s.k)}</option>`).join('');
   const d=t||{task:'',emps:me?[me]:[],owner:me||'',cat:'',requester:'',priority:'متوسطة',status:'جاري',progress:0,start:todayStr(),due:'',done:'',notes:'',stuckReason:'',steps:[],links:[],recur:'',dependsOn:null,...preset};
   M={emps:[...empsOf(d)],owner:ownerOf(d)||empsOf(d)[0]||'',steps:JSON.parse(JSON.stringify(d.steps||[])).map(s=>({text:s.text||'',done:!!s.done,emps:Array.isArray(s.emps)?s.emps:(s.emp?[s.emp]:[]),due:s.due||''})),links:JSON.parse(JSON.stringify(d.links||[]))};
@@ -1688,14 +1835,15 @@ function renderHistory(){
   $('m-history').innerHTML=hs.length?hs.map(h=>`<div><b>${esc(h.by)}</b> — ${esc(fmtDT(h.at))}<br>${esc(h.text)}</div>`).join(''):'<span style="color:var(--gray)">لا يوجد سجل بعد (السجل يبدأ من هذا الإصدار)</span>';
 }
 function addComment(){
+  if(!guard()) return;
   const txt=$('m-commentNew').value.trim(); if(!txt||!editingId) return;
-  if(!me && !confirm('لم تحدد اسمك بعد، سيظهر التعليق باسم «مستخدم». متابعة؟')) return;
   const t=getTask(editingId); if(!t) return;
   t.comments=Array.isArray(t.comments)?t.comments:[];
   t.comments.push({at:new Date().toISOString(),by:meName(),text:txt});
   persist(t); $('m-commentNew').value=''; renderComments(); renderTasks();
 }
 function saveTaskModal(){
+  if(!guard()) return;
   const name=$('m-task').value.trim(), due=$('m-due').value, status=$('m-status').value, stuck=$('m-stuck').value.trim();
   let bad=false;
   const mark=(id,cond)=>{ $(id).classList.toggle('invalid',cond); if(cond) bad=true; };
@@ -1811,7 +1959,7 @@ function renderKanban(){
       <div class="kb-col-header" style="border-bottom-color:${s.color}"><span class="kb-col-title" style="color:${s.color}">${s.icon} ${esc(s.k)}</span><span class="kb-count">${cards.length}</span></div>
       <div class="kb-cards">${cards.length?cards.map(t=>{
         const o=isOverdue(t), p=prOf(t.priority);
-        return `<div class="kb-card${o?' overdue':''}" draggable="true" ondragstart="kbDragId=${t.id};this.classList.add('dragging')" ondragend="this.classList.remove('dragging')" onclick="openTaskModal(${t.id})">
+        return `<div class="kb-card${o?' overdue':''}" draggable="${isAdmin()}" ondragstart="kbDragId=${t.id};this.classList.add('dragging')" ondragend="this.classList.remove('dragging')" onclick="openTaskModal(${t.id})">
           <div class="kb-card-task">${t.pinned?'📌 ':''}${esc(t.task)}</div>
           <div class="emp-tags" style="min-width:0">${empTagsHTML(t)}</div>
           ${t.status==='متعثر'&&t.stuckReason?`<div class="mini warn" style="margin-top:6px;white-space:normal">⛔ ${esc(t.stuckReason)}</div>`:''}
@@ -1824,6 +1972,7 @@ function renderKanban(){
 }
 function kbDrop(e,status){
   e.preventDefault(); e.currentTarget.classList.remove('drag-over');
+  if(!guard()){ kbDragId=null; return; }
   const id=kbDragId; kbDragId=null; if(id===null) return;
   const t=getTask(id); if(!t||t.status===status) return;
   const extra=statusGate([t],status); if(extra===null) return;
@@ -2047,6 +2196,7 @@ function renderAnalytics(){
     <div class="info"><div class="t" onclick="openTaskModal(${t.id})">${esc(t.task)}</div><div class="m">👤 ${esc(empsOf(t).join('، '))} · ${t.stuckReason?'<b style="color:var(--danger)">'+esc(t.stuckReason)+'</b>':'<span style="color:var(--warning)">لم يُذكر السبب — افتح المهمة وأضفه</span>'}</div></div></div>`).join(''):'<div style="color:var(--success);font-weight:700;font-size:13px">✅ لا توجد مهام متعثرة</div>';
 }
 function reviewAct(id,act){
+  if(!guard()) return;
   const t=getTask(id); if(!t) return;
   if(act==='done'){ updateTask(id,{status:'منجز',done:todayStr()}); toast('✅ أُغلقت كمنجزة'); }
   else if(act==='stuck'){ const x=statusGate([t],'متعثر'); if(x) updateTask(id,{status:'متعثر',...x}); }
@@ -2194,7 +2344,7 @@ function exportExcel(){
 }
 // import
 let importRows=[];
-function openImportModal(){ importRows=[]; $('importInfo').innerHTML=''; $('importPreview').innerHTML=''; $('importConfirm').style.display='none'; $('importOverlay').classList.add('open'); }
+function openImportModal(){ if(!guard()) return; importRows=[]; $('importInfo').innerHTML=''; $('importPreview').innerHTML=''; $('importConfirm').style.display='none'; $('importOverlay').classList.add('open'); }
 function closeImport(){ $('importOverlay').classList.remove('open'); importRows=[]; }
 function importDrop(e){ e.preventDefault(); const f=e.dataTransfer.files[0]; if(f) readImport(f); }
 function importPick(e){ const f=e.target.files[0]; if(f) readImport(f); e.target.value=''; }
@@ -2233,6 +2383,7 @@ function readImport(file){
   r.readAsText(file,'UTF-8');
 }
 function confirmImport(){
+  if(!guard()) return;
   if(!importRows.length) return;
   const created=[];
   importRows.forEach(r=>{
@@ -2251,7 +2402,7 @@ function confirmImport(){
 //  SETTINGS, BACKUPS, IDENTITY
 // ═══════════════════════════════════════════════════════════
 function closeOverlay(id){ $(id).classList.remove('open'); }
-function openSettings(){ renderSettingsLists(); $('cloudBackups').innerHTML=''; $('setOverlay').classList.add('open'); }
+function openSettings(){ if(!guard()) return; renderSettingsLists(); $('cloudBackups').innerHTML=''; $('setOverlay').classList.add('open'); }
 function renderSettingsLists(){
   const used={emps:e=>activeTasks().filter(t=>empsOf(t).includes(e)).length,cats:c=>activeTasks().filter(t=>t.cat===c).length,reqs:r=>activeTasks().filter(t=>t.requester===r).length};
   [['emps','setEmps'],['cats','setCats'],['reqs','setReqs']].forEach(([k,id])=>{
@@ -2259,11 +2410,13 @@ function renderSettingsLists(){
   });
 }
 function setAdd(k){
+  if(!guard()) return;
   const inp=$({emps:'setEmpNew',cats:'setCatNew',reqs:'setReqNew'}[k]); const v=inp.value.trim(); if(!v) return;
   if(META[k].includes(v)){ toast('موجود مسبقاً'); return; }
   META[k].push(v); inp.value=''; saveMeta(); renderSettingsLists(); rerenderAll();
 }
 function setRemove(k,i){
+  if(!guard()) return;
   const v=META[k][i];
   if(!confirm(`إزالة «${v}» من القائمة؟\n(المهام الحالية المرتبطة به لن تتغير)`)) return;
   META[k].splice(i,1); saveMeta(); renderSettingsLists(); rerenderAll();
@@ -2271,6 +2424,7 @@ function setRemove(k,i){
 function backupPayload(){ return {app:'srca-tasks',version:10,exportedAt:new Date().toISOString(),meta:{emps:META.emps,cats:META.cats,reqs:META.reqs},tasks:ALL}; }
 function downloadBackup(){ closeMenus(); download(`SRCA-tasks-backup_${todayStr()}.json`,new Blob([JSON.stringify(backupPayload(),null,1)],{type:'application/json'})); toast('💾 تم تحميل النسخة الاحتياطية'); }
 function restoreData(data,label){
+  if(!guard()) return;
   if(!data||!Array.isArray(data.tasks)){ alert('الملف غير صالح'); return; }
   if(!confirm(`استعادة ${label} (${data.tasks.length} مهمة)؟\n\n• المهام الموجودة في النسخة ستُعاد كما كانت.\n• المهام الأحدث غير الموجودة في النسخة ستُنقل إلى المحذوفات (يمكن استعادتها).`)) return;
   const ids=new Set(data.tasks.map(t=>t.id));
@@ -2310,12 +2464,12 @@ function skipIdentity(){ lsSet('srca_me_skip',true); closeOverlay('idOverlay'); 
 (function init(){
   try{ $('currentDate').textContent=new Date().toLocaleDateString('ar-SA',{weekday:'long',year:'numeric',month:'long',day:'numeric'}); }catch(e){}
   $('qaDue').value=addDays(todayStr(),7);
+  document.body.classList.add('view-mode');
   let tab='tasks'; try{ tab=sessionStorage.getItem('srca_tab')||'tasks'; }catch(e){}
   currentTab=['tasks','group','kanban','calendar','timeline','analytics','archive','trash'].includes(tab)?tab:'tasks';
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===currentTab));
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.id==='panel-'+currentTab));
   rerenderAll();
-  if(!me && !lsGet('srca_me_skip',false)) setTimeout(()=>{ if(!me) openIdentity(); },1500);
   document.addEventListener('keydown',e=>{
     if(e.key==='Escape'){ closeMenus(); ['taskOverlay','importOverlay','setOverlay','infoOverlay','idOverlay'].forEach(id=>$(id).classList.remove('open')); $('notifPanel').classList.remove('open'); editingId=null; }
   });
